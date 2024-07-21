@@ -1,4 +1,4 @@
-# DENGEN TOKEN(ERC20 TOKEN)
+# DEGEN Token Smart Contract
 
 We did create the ERC 20 TOKEN and we did name it as "Dengen Game Token"
 
