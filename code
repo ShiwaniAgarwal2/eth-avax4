@@ -1,106 +1,94 @@
-// SPDX-License-Identifier: MIT
-pragma solidity 0.8.18;
+/ SPDX-License-Identifier: MIT
+pragma solidity ^0.8;
 
-contract GameToken {
-    string public tokenName;
-    string public tokenSymbol;
-    uint16 public tokenDecimals;
-    uint256 public totalTokenSupply;
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
-    mapping(address => uint256) private userBalances;
-    mapping(address => mapping(address => uint256)) private userAllowances;
+contract DEGENToken is ERC20, Ownable, Pausable {
+    mapping(address => bool) private _redeemers;
+    mapping(uint256 => Item) private _storeItems;
+    uint256 private _totalItems;
 
-    address public contractOwner;
-
-    event TokenTransfer(address indexed from, address indexed to, uint256 value);
-    event TokenApproval(address indexed owner, address indexed spender, uint256 value);
-    event TokenMint(address indexed to, uint256 value);
-    event TokenBurn(address indexed from, uint256 value);
-    event ItemRedemption(address indexed from, string itemName);
-
-    struct CollectibleItem {
-        string itemName;
-        uint256 itemPrice;
+    struct Item {
+        string name;
+        uint256 price;
     }
 
-    mapping(uint256 => CollectibleItem) public collectibleItems;
+    event ItemAdded(uint256 itemId, string name, uint256 price);
+    event Redeemed(address indexed user, uint256 itemId, string itemName, uint256 itemPrice);
 
-    modifier onlyContractOwner() {
-        require(msg.sender == contractOwner, "Only the contract owner can perform this action.");
-        _;
+    constructor() ERC20("Degen", "DGEN") Ownable(msg.sender) Pausable() {
+        _mint(msg.sender, 0);
+        transferOwnership(msg.sender); // Set the owner to the deployer
     }
 
-    constructor() {
-        tokenName = "Game Token";
-        tokenSymbol = "GTKN";
-        tokenDecimals = 18;
-        totalTokenSupply = 0;
-        contractOwner = msg.sender;
-        addItem(0, "Golden Sword", 200);
-        addItem(1, "Shield", 100);
-        addItem(2, "Magic Wand", 2000);
-        addItem(3, "Dragon Egg", 1000);
+    function addStoreItem(string memory name, uint256 price) public onlyOwner whenNotPaused {
+        _totalItems++;
+        _storeItems[_totalItems] = Item(name, price);
+        emit ItemAdded(_totalItems, name, price);
     }
 
-    function getUserBalance(address account) external view returns (uint256) {
-        return userBalances[account];
+    function mintDGENToken(address to, uint256 amount) public onlyOwner whenNotPaused {
+        _mint(to, amount);
     }
 
-    function transferTokens(address recipient, uint256 amount) external returns (bool) {
-        require(amount <= userBalances[msg.sender], "Insufficient balance.");
+    function burnDGENToken(uint256 amount) public whenNotPaused {
+        _burn(msg.sender, amount);
+    }
 
-        userBalances[msg.sender] -= amount;
-        userBalances[recipient] += amount;
+    function toggleRedeemer(address user) public onlyOwner {
+        _redeemers[user] = !_redeemers[user];
+    }
 
-        emit TokenTransfer(msg.sender, recipient, amount);
+    function isRedeemer(address user) public view returns (bool) {
+        return _redeemers[user];
+    }
+
+    function redeemItem(uint256 itemId) public whenNotPaused {
+        require(_redeemers[msg.sender], "Not allowed to redeem");
+        require(itemId <= _totalItems && itemId > 0, "Invalid item ID");
+        Item storage item = _storeItems[itemId];
+        require(balanceOf(msg.sender) >= item.price, "Insufficient balance");
+
+        _transfer(msg.sender, owner(), item.price);
+        _burn(msg.sender, item.price);
+        emit Redeemed(msg.sender, itemId, item.name, item.price);
+    }
+
+    function getItemInfo(uint256 itemId) public view returns (string memory, uint256) {
+        require(itemId <= _totalItems && itemId > 0, "Invalid item ID");
+        Item memory item = _storeItems[itemId];
+        return (item.name, item.price);
+    }
+
+    function getAllItems() public view returns (string[] memory, uint256[] memory) {
+        string[] memory names = new string[](_totalItems);
+        uint256[] memory prices = new uint256[](_totalItems);
+
+        for (uint256 i = 1; i <= _totalItems; i++) {
+            Item memory item = _storeItems[i];
+            names[i - 1] = item.name;
+            prices[i - 1] = item.price;
+        }
+
+        return (names, prices);
+    }
+
+    function getTotalSupply() public view returns (uint256) {
+        return totalSupply();
+    }
+
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    function transferDGEN(address to, uint256 amount) public whenNotPaused returns (bool) {
+        _transfer(msg.sender, to, amount);
         return true;
-    }
-
-    function transferTokensFrom(address sender, address recipient, uint256 amount) external returns (bool) {
-        require(amount <= userBalances[sender], "Insufficient balance.");
-        require(amount <= userAllowances[sender][msg.sender], "Insufficient allowance.");
-
-        userBalances[sender] -= amount;
-        userBalances[recipient] += amount;
-        userAllowances[sender][msg.sender] -= amount;
-
-        emit TokenTransfer(sender, recipient, amount);
-        return true;
-    }
-
-    function mintTokens(address to, uint256 amount) external onlyContractOwner {
-        totalTokenSupply += amount;
-        userBalances[to] += amount;
-
-        emit TokenMint(to, amount);
-        emit TokenTransfer(address(0), to, amount);
-    }
-
-    function burnTokens(uint256 amount) external {
-        require(amount <= userBalances[msg.sender], "Insufficient balance.");
-
-        userBalances[msg.sender] -= amount;
-        totalTokenSupply -= amount;
-
-        emit TokenBurn(msg.sender, amount);
-        emit TokenTransfer(msg.sender, address(0), amount);
-    }
-
-    function redeemItem(uint256 itemId) external returns (string memory) {
-        require(userBalances[msg.sender] > 0, "Insufficient balance.");
-        require(collectibleItems[itemId].itemPrice > 0, "Invalid item ID.");
-
-        uint256 redemptionAmount = collectibleItems[itemId].itemPrice;
-        require(userBalances[msg.sender] >= redemptionAmount, "Insufficient balance to redeem the item.");
-
-        userBalances[msg.sender] -= redemptionAmount;
-
-        emit ItemRedemption(msg.sender, collectibleItems[itemId].itemName);
-
-        return collectibleItems[itemId].itemName;
-    }
-
-    function addItem(uint256 itemId, string memory itemName, uint256 itemPrice) public onlyContractOwner {
-        collectibleItems[itemId] = CollectibleItem(itemName, itemPrice);
     }
 }
