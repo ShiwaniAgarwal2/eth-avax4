@@ -1,148 +1,235 @@
-# DEGEN Token Smart Contract
+# DengenToken Smart Contract
+## Overview
+The DengenToken smart contract is an ERC20 token implementation with additional functionalities for minting, burning, and redeeming tokens. The contract allows the owner to mint tokens, and any user can burn or redeem tokens. Redeemed tokens are recorded for each user and can be retrieved or printed.
 
-We did create the ERC 20 TOKEN and we did name it as "Dengen Game Token"
-
-## Description
-
-This smart contract is designed to illustrate various essential features of Solidity, including:
-
-1. Minting new tokens: The platform is able to create new tokens and distribute them to players as rewards.
-   Only the owner has rights to mint tokens.
-2. Transferring tokens: Players are able to transfer their tokens to others.
-3. Redeeming tokens: Players are able to redeem their tokens for items in the in-game store.
-4. Checking token balance: Players are able to check their token balance at any time.
-5. Burning tokens: Anyone is able to burn tokens, that they own, that are no longer needed.
-
-The contract includes:
-
-1. Functions to mint and burn tokens.
-2. A function to safely perform all the operations.
-3. Owner-restricted functions.
-4. A function to add items in inventory.
-5. Custom error handling.
-
+### Features
+- Minting: Only the contract owner can mint new tokens.
+- Burning: Any token holder can burn their tokens.
+- Redeeming: Token holders can redeem tokens, and the details of the redemption are stored.
+- Transfer: Tokens can be transferred between addresses.
+- Balance Check: The balance of any address can be checked.
+- Redeemed Items Retrieval: Retrieve and print the details of redeemed tokens for any address.
+  
+### Prerequisites
+- Node.js
+- npm
+- Truffle
+- Ganache or any Ethereum test network
+- OpenZeppelin Contracts
 
 ## Getting Started
-
 ### Installing
-
 This program runs on EVM along with ".sol" as extension. We can either run it on websites like Remix or even on Visual Studios.
-
 ### Executing program
+We need a solidity compatible virtual machine in order to run this program. Create a new file with ".sol" extension
 
-We need a solidity compatible virtual machine in order to run this program.
-Create a new file with ".sol" extension
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.0;
 
-```
-/ SPDX-License-Identifier: MIT
-pragma solidity ^0.8;
+    import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+    import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+    contract DengenToken is ERC20, Ownable {
+         struct RedeemedItem {
+        uint256 amount;
+        string itemName;
+        uint256 tokensRedeemed;
+           }
 
-contract DEGENToken is ERC20, Ownable, Pausable {
-    mapping(address => bool) private _redeemers;
-    mapping(uint256 => Item) private _storeItems;
-    uint256 private _totalItems;
+  
+    event TokensRedeemed(address indexed redeemer, string itemName, uint256 amount, uint256 tokensRedeemed);
 
-    struct Item {
-        string name;
-        uint256 price;
+   
+
+    mapping(address => RedeemedItem[]) private redeemedItems;
+      mapping(string => uint256) private itemCosts;
+    // mapping(address => RedeemedItem[]) private redeemedItems;
+
+    constructor() ERC20("Degen", "DGN") Ownable(msg.sender) {
+        // Initialize item costs
+        itemCosts["Chocolate"] = 1;
+        itemCosts["Candies"] = 2;
+        itemCosts["Ice cream"] = 3;
+        itemCosts["Donuts"] = 6;
     }
 
-    event ItemAdded(uint256 itemId, string name, uint256 price);
-    event Redeemed(address indexed user, uint256 itemId, string itemName, uint256 itemPrice);
-
-    constructor() ERC20("Degen", "DGEN") Ownable(msg.sender) Pausable() {
-        _mint(msg.sender, 0);
-        transferOwnership(msg.sender); // Set the owner to the deployer
-    }
-
-    function addStoreItem(string memory name, uint256 price) public onlyOwner whenNotPaused {
-        _totalItems++;
-        _storeItems[_totalItems] = Item(name, price);
-        emit ItemAdded(_totalItems, name, price);
-    }
-
-    function mintDGENToken(address to, uint256 amount) public onlyOwner whenNotPaused {
+   
+    function mint(address to, uint256 amount) public onlyOwner {
+        require(to != address(0), "Cannot mint to zero address");
+        require(amount > 0, "Mint amount must be greater than zero");
         _mint(to, amount);
     }
 
-    function burnDGENToken(uint256 amount) public whenNotPaused {
-        _burn(msg.sender, amount);
+    function burn(uint256 amount) public {
+        require(amount > 0, "Burn amount must be greater than zero");
+        _burn(_msgSender(), amount);
     }
 
-    function toggleRedeemer(address user) public onlyOwner {
-        _redeemers[user] = !_redeemers[user];
+ 
+      function redeem(string memory itemName, uint256 amount) public {
+        require(amount > 0, "Redeem amount must be greater than zero");
+        uint256 cost = itemCosts[itemName];
+        require(cost > 0, "Item not recognized");
+        uint256 totalCost = cost * amount;
+        require(balanceOf(_msgSender()) >= totalCost, "Insufficient token balance");
+
+        _burn(_msgSender(), totalCost);
+
+        redeemedItems[_msgSender()].push(RedeemedItem({
+            itemName: itemName,
+            amount: amount,
+            tokensRedeemed: totalCost
+        }));
+
+        emit TokensRedeemed(_msgSender(), itemName, amount, totalCost);
     }
 
-    function isRedeemer(address user) public view returns (bool) {
-        return _redeemers[user];
+     function getRedeemedItems(address account) public view returns (RedeemedItem[] memory) {
+        require(account != address(0), "Query for zero address");
+        return redeemedItems[account];
     }
 
-    function redeemItem(uint256 itemId) public whenNotPaused {
-        require(_redeemers[msg.sender], "Not allowed to redeem");
-        require(itemId <= _totalItems && itemId > 0, "Invalid item ID");
-        Item storage item = _storeItems[itemId];
-        require(balanceOf(msg.sender) >= item.price, "Insufficient balance");
 
-        _transfer(msg.sender, owner(), item.price);
-        _burn(msg.sender, item.price);
-        emit Redeemed(msg.sender, itemId, item.name, item.price);
-    }
+        function printRedeemedTokens(address account) public view returns (string memory) {
+        require(account != address(0), "Query for zero address");
+        RedeemedItem[] memory items = redeemedItems[account];
+        require(items.length > 0, "No redeemed tokens found");
 
-    function getItemInfo(uint256 itemId) public view returns (string memory, uint256) {
-        require(itemId <= _totalItems && itemId > 0, "Invalid item ID");
-        Item memory item = _storeItems[itemId];
-        return (item.name, item.price);
-    }
-
-    function getAllItems() public view returns (string[] memory, uint256[] memory) {
-        string[] memory names = new string[](_totalItems);
-        uint256[] memory prices = new uint256[](_totalItems);
-
-        for (uint256 i = 1; i <= _totalItems; i++) {
-            Item memory item = _storeItems[i];
-            names[i - 1] = item.name;
-            prices[i - 1] = item.price;
+        string memory result = "";
+        for (uint256 i = 0; i < items.length; i++) {
+            result = string(abi.encodePacked(
+                result,
+                "Redemption ", uintToString(i + 1), ": ",
+                "Item: ", items[i].itemName, 
+                " Amount: ", uintToString(items[i].amount),
+                " Tokens Redeemed: ", uintToString(items[i].tokensRedeemed),
+                "\n"
+            ));
         }
-
-        return (names, prices);
+        return result;
     }
 
-    function getTotalSupply() public view returns (uint256) {
-        return totalSupply();
+     function uintToString(uint256 v) internal pure returns (string memory) {
+        if (v == 0) {
+            return "0";
+        }
+        uint256 digits;
+        uint256 temp = v;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (v != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(v % 10)));
+            v /= 10;
+        }
+        return string(buffer);
     }
 
-    function pause() public onlyOwner {
-        _pause();
+    function checkBalance(address account) public view returns (uint256) {
+        require(account != address(0), "Query for zero address");
+        return balanceOf(account);
     }
 
-    function unpause() public onlyOwner {
-        _unpause();
+    // Function to transfer tokens
+    function transferTokens(address from, address to, uint256 amount) public {
+        require(amount > 0, "Transfer amount must be greater than zero");
+        require(from != address(0), "Cannot transfer from zero address");
+        require(to != address(0), "Cannot transfer to zero address");
+
+        if (from == _msgSender()) {
+            _transfer(from, to, amount);
+        } else {
+            uint256 currentAllowance = allowance(from, _msgSender());
+            require(currentAllowance >= amount, "Transfer amount exceeds allowance");
+            _approve(from, _msgSender(), currentAllowance - amount);
+            _transfer(from, to, amount);
+        }
+    }
     }
 
-    function transferDGEN(address to, uint256 amount) public whenNotPaused returns (bool) {
-        _transfer(msg.sender, to, amount);
-        return true;
-    }
-}
 
----
+## Usage
 
+### Minting Tokens
+Only the contract owner can mint new tokens. To mint tokens, call the mint function:
+```
+function mint(address to, uint256 amount) public onlyOwner
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.mint("0xYourAddress", 1000))
+```
 
-## Help
+### Burning Tokens
+Any token holder can burn their tokens by calling the burn function:
+```
+function burn(uint256 amount) public
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.burn(500, {from: "0xYourAddress"}))
+```
 
-Common Issues:
- 1. Contract Compilation Errors:
-   A. Ensure your Solidity version is compatible (0.8.18 or later).
-   B. Check for syntax errors or typos in the contract.
+### Redeeming Tokens
+Token holders can redeem their tokens by calling the redeem function:
+```
+function redeem(uint256 amount) public
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.redeem(10, {from: "0xYourAddress"}))
+```
 
-2. Function Call Errors:
+### Checking Balance
+To check the balance of any address, call the checkBalance function:
+```
+function checkBalance(address account) public view returns (uint256)
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.checkBalance("0xYourAddress"))
+```
 
-   A. Ensure you are using the correct contract address and bridging of meta mask.
-   B. Check for access restrictions if encountering permission errors (e.g., onlyowner functions).
+### Transferring Tokens
+Tokens can be transferred between addresses by calling the transferTokens function:
+```
+function transferTokens(address from, address to, uint256 amount) public
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.transferTokens("0xFromAddress", "0xToAddress", 100))
+```
+
+### Retrieving Redeemed Items
+To retrieve the redeemed items for any address, call the getRedeemedItems function:
+```
+function getRedeemedItems(address account) public view returns (RedeemedItem[] memory)
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.getRedeemedItems("0xYourAddress"))
+```
+
+### Printing Redeemed Tokens
+To print the details of redeemed tokens for any address, call the printRedeemedTokens function:
+```
+function printRedeemedTokens(address account) public view returns (string memory)
+```
+Example:
+```
+truffle console
+DengenToken.deployed().then(instance => instance.printRedeemedTokens("0xYourAddress"))
+```
+
 
 
 ## Authors
